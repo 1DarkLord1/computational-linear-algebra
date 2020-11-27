@@ -10,34 +10,51 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
-
+ 
 import Data.Matrix
-
-type MatrixDouble = Matrix Double
-
+import qualified Data.Vector
+ 
 subtr :: Num a => Matrix a -> Matrix a -> Matrix a
-subtr m1 m2 = elementwise (\x y -> x - y) m1 m2
-
+subtr = elementwise (-)
+ 
 add :: Num a => Matrix a -> Matrix a -> Matrix a
-add m1 m2 = elementwise (\x y -> x + y) m1 m2 
-
-norm2 :: (Floating a, Num a) => Matrix a -> a
+add = elementwise (+)
+ 
+norm2 :: Floating a => Matrix a -> a
 norm2 v = sqrt $ foldr (\x r -> x * x + r) 0 (toList v) 
+ 
+gershgorinCircles :: (Floating a, Ord a) => Matrix a -> [(a, a)]
+gershgorinCircles m = zip cs rs
+    where
+        cs   = Data.Vector.toList $ getDiag m
+        diag = diagonalList (nrows m) 0 cs
+        rs   = map (foldr (\x r -> abs x + r) 0) (toLists $ m `subtr` diag)
 
-simpleIteration :: [[Double]] -> [[Double]] -> Double -> Either Int MatrixDouble
-simpleIteration m b eps = simpleIteration' (fromLists m) (fromLists b) eps
-
-simpleIteration' :: MatrixDouble -> MatrixDouble -> Double -> Either Int MatrixDouble
-simpleIteration' m b eps = doIterations m' b (fromList size 1 zero) eps 0 
-	where 
-		  m'   = identity size `subtr` m
-		  zero = replicate size 0
-		  size = nrows m
-
-
-doIterations m b x eps cnt
-	| cnt == 20 				  = Left 0
-	| norm2 x' >= (norm2 x) + 1   = doIterations m b x' eps (cnt + 1) 
-	| norm2 (x `subtr` x') <= eps = Right x'
-	| otherwise                   = doIterations m b x' eps cnt
-	where x'                      = (m `multStd` x) `add` b 
+simpleIteration :: (Floating a, Ord a) => [[a]] -> [[a]] -> a -> Either Int (Matrix a)
+simpleIteration m b = simpleIteration' (fromLists m) (fromLists b)
+ 
+simpleIteration' :: (Floating a, Ord a) => Matrix a -> Matrix a -> a -> Either Int (Matrix a)
+simpleIteration' m b eps = doIterations m' b (fromList size 1 zero) eps outUnitCircle 0 
+    where 
+          m' = identity size `subtr` m
+          zero = replicate size 0
+          size = nrows m
+          outUnitCircle = foldr (\(c, r) acc -> (abs c + r >= 1) || acc) False (gershgorinCircles m)  
+ 
+doIterations m b x eps outUnitCircle cnt
+    | outUnitCircle 
+        && cnt == 20                 = Left 0
+    | outUnitCircle
+        && norm2 x' >= norm2 x + 1   = doIterations m b x' eps outUnitCircle (cnt + 1) 
+    | norm2 (x `subtr` x') <= eps    = Right x'
+    | otherwise                      = doIterations m b x' eps outUnitCircle 0
+    where x'                         = (m `multStd` x) `add` b
+ 
+{-leftTriangle :: (Floating a, Ord a) => Matrix a -> Matrix a
+leftTriangle m = 
+ 
+gaussZeidel :: (Floating a, Ord a) => [[a] -> [[a]] -> a -> Either Int (Matrix a)
+gaussZeidel m b eps = gaussZeidel' (fromLists m) (fromLists b) eps
+ 
+gaussZeidel' :: (Floating a, Ord a) => Matrix a -> Matrix a -> a -> Either Int (Matrix a)
+gaussZeidel' m b eps = doGZ -}
