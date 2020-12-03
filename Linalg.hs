@@ -1,19 +1,13 @@
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
- 
+{-# LANGUAGE AllowAmbiguousTypes #-}
+
 import Data.Matrix
 import qualified Data.Vector
- 
+
 subtr :: Num a => Matrix a -> Matrix a -> Matrix a
 subtr = elementwise (-)
  
@@ -98,3 +92,5 @@ doGaussZeidel l negu b x eps outCircle cnt
     where
         b' = (negu `multStd` x) `add` b
         x' = gaussPartial l b'
+
+--givensRotation :: (Floating a, Ord a) => 
