@@ -103,30 +103,33 @@ givensRotation m i j c s = zipWith f [1..] m
         uinew = zipWith (\xi xj -> c * xi + s * xj) ui uj
         ujnew = zipWith (\xi xj -> (- s) * xi + c * xj) ui uj
         f pos row
-            | pos == i = uinew
-            | pos == j = ujnew
+            | pos == i  = uinew
+            | pos == j  = ujnew
             | otherwise = row
 
 trans :: [[a]] -> [[a]]
 trans = toLists . transpose . fromLists
 
-qrDecompGivens :: (Show a, Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
+qrDecompGivens :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
 qrDecompGivens m = appToPair fromLists $ first trans qr
     where
         appToPair f (x, y) = (f x, f y)
-        idm = toLists $ identity $ length m :: Num a => [[a]]
-        qr = foldl handler (idm, m) [1..length m]
+        idm                = toLists $ identity $ length m :: Num a => [[a]]
+        qr                 = foldl handler (idm, m) [1..length m]
         handler (q, r) k 
-            | i == 0 = (q, r)
+            | i == 0    = (q, r)
             | otherwise = (givensRotation q'' k i 0 1, givensRotation r'' k i 0 1)
             where
-                col = trans r !! (k - 1)
-                i = foldl (\acc (j, x) -> if j >= k && x /= 0 && acc == 0 then j else acc) 0 (zip [1..] col)   
+                col        = trans r !! (k - 1)
+                i          = foldl (\acc (j, x) -> if j >= k && x /= 0 && acc == 0 
+                                                   then j 
+                                                   else acc) 0 (zip [1..] col)   
                 (q'', r'') = fst $ foldl handler' ((q, r), col !! (i - 1)) (zip [1..] col)
                 handler' ((q', r'), xi) (j, xj)
-                    | j <= k = ((q', r'), xi)
+                    | j <= k    = ((q', r'), xi)
                     | otherwise = ((givensRotation q' j i c s, givensRotation r' j i c s), (- s) * xj + c * xi)
                         where
                             n = sqrt $ xi * xi + xj * xj
                             c = xi / n
                             s = (- xj) / n
+
