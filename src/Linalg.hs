@@ -4,9 +4,11 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-
+{-# LANGUAGE DataKinds #-}
 import Data.Matrix
-import qualified Data.Vector
+import Data.Bifunctor
+import qualified Data.Vector as V
+import Debug.Trace as DT
 
 subtr :: Num a => Matrix a -> Matrix a -> Matrix a
 subtr = elementwise (-)
@@ -17,13 +19,13 @@ add = elementwise (+)
 norm2 :: Floating a => Matrix a -> a
 norm2 v = sqrt $ foldr (\x r -> x * x + r) 0 (toList v) 
 
-getDiagonal :: (Floating a, Ord a) => Matrix a -> Matrix a
-getDiagonal m = diagonalList (nrows m) 0 $ Data.Vector.toList $ getDiag m
+getDiagonal :: Num a => Matrix a -> Matrix a
+getDiagonal m = diagonalList (nrows m) 0 $ V.toList $ getDiag m
 
-gershgorinCircles :: (Floating a, Ord a) => Matrix a -> [(a, a)]
+gershgorinCircles :: Floating a => Matrix a -> [(a, a)]
 gershgorinCircles m = zip cs rs
     where
-        cs   = Data.Vector.toList $ getDiag m
+        cs   = V.toList $ getDiag m
         diag = getDiagonal m
         rs   = map (foldr (\x r -> abs x + r) 0) (toLists $ m `subtr` diag)
 
@@ -48,12 +50,12 @@ doIterations m b x eps outCircle cnt
     | otherwise                      = doIterations m b x' eps outCircle 0
     where x'                         = (m `multStd` x) `add` b
  
-lowerTriangle :: (Floating a, Ord a) => Matrix a -> Matrix a
+lowerTriangle :: Num a => Matrix a -> Matrix a
 lowerTriangle m = mapPos (\(i, j) e -> if (size - i + 1) + j <= size + 1 then e else 0) m
     where
         size = nrows m 
 
-upperTriangle :: (Floating a, Ord a) => Matrix a -> Matrix a
+upperTriangle :: Num a => Matrix a -> Matrix a
 upperTriangle m = transpose $ m' `subtr` diag 
     where
         m'   = lowerTriangle $ transpose m  
@@ -93,4 +95,38 @@ doGaussZeidel l negu b x eps outCircle cnt
         b' = (negu `multStd` x) `add` b
         x' = gaussPartial l b'
 
---givensRotation :: (Floating a, Ord a) => 
+givensRotation :: Floating a => [[a]] -> Int -> Int -> a -> a -> [[a]]
+givensRotation m i j c s = zipWith f [1..] m
+    where
+        ui = m !! (i - 1)
+        uj = m !! (j - 1)
+        uinew = zipWith (\xi xj -> c * xi + s * xj) ui uj
+        ujnew = zipWith (\xi xj -> (- s) * xi + c * xj) ui uj
+        f pos row
+            | pos == i = uinew
+            | pos == j = ujnew
+            | otherwise = row
+
+trans :: [[a]] -> [[a]]
+trans = toLists . transpose . fromLists
+
+qrDecompGivens :: (Show a, Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
+qrDecompGivens m = appToPair fromLists $ first trans qr
+    where
+        appToPair f (x, y) = (f x, f y)
+        idm = toLists $ identity $ length m :: Num a => [[a]]
+        qr = foldl handler (idm, m) [1..length m]
+        handler (q, r) k 
+            | i == 0 = (q, r)
+            | otherwise = (givensRotation q'' k i 0 1, givensRotation r'' k i 0 1)
+            where
+                col = trans r !! (k - 1)
+                i = foldl (\acc (j, x) -> if j >= k && x /= 0 && acc == 0 then j else acc) 0 (zip [1..] col)   
+                (q'', r'') = fst $ foldl handler' ((q, r), col !! (i - 1)) (zip [1..] col)
+                handler' ((q', r'), xi) (j, xj)
+                    | j <= k = ((q', r'), xi)
+                    | otherwise = ((givensRotation q' j i c s, givensRotation r' j i c s), (- s) * xj + c * xi)
+                        where
+                            n = sqrt $ xi * xi + xj * xj
+                            c = xi / n
+                            s = (- xj) / n
