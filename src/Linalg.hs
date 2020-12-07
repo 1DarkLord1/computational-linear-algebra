@@ -5,17 +5,20 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 import Data.Matrix
 import Data.Bifunctor
 import qualified Data.Vector as V
 import Debug.Trace as DT
+import Data.CReal
 
 subtr :: Num a => Matrix a -> Matrix a -> Matrix a
 subtr = elementwise (-)
  
 add :: Num a => Matrix a -> Matrix a -> Matrix a
 add = elementwise (+)
- 
+
 norm2 :: Floating a => Matrix a -> a
 norm2 v = sqrt $ foldr (\x r -> x * x + r) 0 (toList v) 
 
@@ -110,20 +113,26 @@ givensRotation m i j c s = zipWith f [1..] m
 trans :: [[a]] -> [[a]]
 trans = toLists . transpose . fromLists
 
+idMatrix :: Floating a => Int -> [[a]]
+idMatrix sz = toLists $ identity sz
+
+firstNonzero :: (Floating a, Ord a) => [a] -> Int -> Int
+firstNonzero v k = foldl (\acc (j, x) -> if j >= k && x /= 0 && acc == 0 
+                                       then j 
+                                       else acc) 0 (zip [1..] v) 
+
 qrDecompGivens :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
 qrDecompGivens m = appToPair fromLists $ first trans qr
     where
         appToPair f (x, y) = (f x, f y)
-        idm                = toLists $ identity $ length m :: Num a => [[a]]
-        qr                 = foldl handler (idm, m) [1..length m]
+        idm                = idMatrix $ length m 
+        qr                 = foldl handler (idm, m) [1..(length m - 1)]
         handler (q, r) k 
             | i == 0    = (q, r)
             | otherwise = (givensRotation q'' k i 0 1, givensRotation r'' k i 0 1)
             where
                 col        = trans r !! (k - 1)
-                i          = foldl (\acc (j, x) -> if j >= k && x /= 0 && acc == 0 
-                                                   then j 
-                                                   else acc) 0 (zip [1..] col)   
+                i          = firstNonzero col k
                 (q'', r'') = fst $ foldl handler' ((q, r), col !! (i - 1)) (zip [1..] col)
                 handler' ((q', r'), xi) (j, xj)
                     | j <= k    = ((q', r'), xi)
@@ -133,3 +142,27 @@ qrDecompGivens m = appToPair fromLists $ first trans qr
                             c = xi / n
                             s = (- xj) / n
 
+multHouseholder :: Floating a => [[a]] -> [[a]] -> [[a]]
+multHouseholder m' v' = toLists $ m `subtr` prod
+    where
+        m   = fromLists m'
+        v   = fromLists v'
+        vt  = transpose v
+        prod = scaleMatrix 2 v `multStd` (vt `multStd` m)
+
+qrDecompHouseholder :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
+qrDecompHouseholder m = appToPair fromLists $ first trans qr
+    where
+        appToPair f (x, y) = (f x, f y)
+        idm                = idMatrix $ length m
+        qr                 = foldl handler (idm, m) [1..(length m - 1)]
+        handler (q, r) k 
+            | i == 0 || u == e1 = (q, r)
+            | otherwise = (multHouseholder q v, multHouseholder r v)
+            where
+                col = trans r !! (k - 1)
+                i   = firstNonzero col k
+                v'  = fromLists $ zipWith (\j x -> if j < i then [0] else [x]) [1..length col] col
+                u   = scaleMatrix (1 / norm2 v') v'
+                e1  = mapPos (\(j, _) _-> if j == i then 1 else 0) v'
+                v   = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
