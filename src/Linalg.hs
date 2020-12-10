@@ -49,7 +49,7 @@ doIterations m b x eps outCircle cnt
         && cnt == 20                 = Left 0
     | outCircle
         && norm2 x' >= norm2 x + 1   = doIterations m b x' eps outCircle (cnt + 1) 
-    | norm2 (x `subtr` x') <= eps    = Right x'
+    | norm2 (x `subtr` x') < eps    = Right x'
     | otherwise                      = doIterations m b x' eps outCircle 0
     where x'                         = (m `multStd` x) `add` b
  
@@ -92,7 +92,7 @@ doGaussZeidel l negu b x eps outCircle cnt
         && cnt == 20                            = Left 0
     | outCircle
         && norm2 x' >= norm2 x + 1              = doGaussZeidel l negu b x' eps outCircle (cnt + 1)
-    | norm2 ((l `multStd` x) `subtr` b') <= eps = Right x
+    | norm2 ((l `multStd` x) `subtr` b') < eps = Right x
     | otherwise                                 = doGaussZeidel l negu b x' eps outCircle 0
     where
         b' = (negu `multStd` x) `add` b
@@ -145,9 +145,9 @@ qrDecompGivens m = appToPair fromLists $ first trans qr
 multHouseholder :: Floating a => [[a]] -> [[a]] -> [[a]]
 multHouseholder m' v' = toLists $ m `subtr` prod
     where
-        m   = fromLists m'
-        v   = fromLists v'
-        vt  = transpose v
+        m    = fromLists m'
+        v    = fromLists v'
+        vt   = transpose v
         prod = scaleMatrix 2 v `multStd` (vt `multStd` m)
 
 qrDecompHouseholder :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
@@ -158,7 +158,7 @@ qrDecompHouseholder m = appToPair fromLists $ first trans qr
         qr                 = foldl handler (idm, m) [1..(length m - 1)]
         handler (q, r) k 
             | i == 0 || u == e1 = (q, r)
-            | otherwise = (multHouseholder q v, multHouseholder r v)
+            | otherwise         = (multHouseholder q v, multHouseholder r v)
             where
                 col = trans r !! (k - 1)
                 i   = firstNonzero col k
@@ -166,3 +166,31 @@ qrDecompHouseholder m = appToPair fromLists $ first trans qr
                 u   = scaleMatrix (1 / norm2 v') v'
                 e1  = mapPos (\(j, _) _-> if j == i then 1 else 0) v'
                 v   = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
+
+simpleIterationMaxEV :: (Floating a, Ord a) => [[a]] -> [[a]] -> a -> Either Int (a, Matrix a)
+simpleIterationMaxEV m v = simpleIterationMaxEV' (fromLists m) (fromLists v)
+
+simpleIterationMaxEV' :: (Floating a, Ord a) => Matrix a -> Matrix a -> a -> Either Int (a, Matrix a)
+simpleIterationMaxEV' m v eps = doItersMaxEV m v eps 0
+
+doItersMaxEV m x eps cnt
+    | cnt > 1000000000  = Left 0
+    | norm2 diff < eps = Right (ev, x)
+    | otherwise         = doItersMaxEV m x' eps (cnt + 1) 
+    where
+        x'   = scaleMatrix (1 / (norm2 $ m `multStd` x)) (m `multStd` x)
+        ev   = head $ head $ toLists $ transpose x `multStd` (m `multStd` x)
+        diff = (m `multStd` x) `subtr` scaleMatrix ev x
+
+qrEV :: (Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
+qrEV m eps = doItersQrEV m eps (identity (length m))
+
+doItersQrEV m eps qk
+    | less_eps = (evs, qk)
+    | otherwise = doItersQrEV m' eps (qk `multStd` q)
+    where
+        (q, r) = qrDecompGivens m
+        m' = toLists $ r `multStd` q
+        circles = gershgorinCircles (fromLists m)
+        less_eps = foldr (\(_, r) acc -> (r < eps) && acc) True circles
+        evs = V.toList $ getDiag $ fromLists m
