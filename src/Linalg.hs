@@ -1,3 +1,5 @@
+module Linalg where
+
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -10,8 +12,6 @@
 import Data.Matrix
 import Data.Bifunctor
 import qualified Data.Vector as V
-import Debug.Trace as DT
-import Data.CReal
 
 subtr :: Num a => Matrix a -> Matrix a -> Matrix a
 subtr = elementwise (-)
@@ -157,16 +157,15 @@ qrDecompHouseholder m = appToPair fromLists $ first trans qr
         idm                = idMatrix $ length m
         qr                 = foldl handler (idm, m) [1..(length m - 1)]
         handler (q, r) k 
-            | i == 0 || u == e1 = (q, r)
-            | otherwise         = (multHouseholder q v, multHouseholder r v)
+            | norm2 v' == 0 || u == e1 = (q, r)
+            | otherwise                = (multHouseholder q v, multHouseholder r v)
             where
                 col = trans r !! (k - 1)
-                i   = firstNonzero col k
-                v'  = fromLists $ zipWith (\j x -> if j < i then [0] else [x]) [1..length col] col
+                v'  = fromLists $ zipWith (\j x -> if j < k then [0] else [x]) [1..length col] col
                 u   = scaleMatrix (1 / norm2 v') v'
-                e1  = mapPos (\(j, _) _-> if j == i then 1 else 0) v'
+                e1  = mapPos (\(j, _) _-> if j == k then 1 else 0) v'
                 v   = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
-
+ 
 simpleIterationMaxEV :: (Floating a, Ord a) => [[a]] -> [[a]] -> a -> Either Int (a, Matrix a)
 simpleIterationMaxEV m v = simpleIterationMaxEV' (fromLists m) (fromLists v)
 
@@ -194,3 +193,29 @@ doItersQrEV m eps qk
         circles = gershgorinCircles (fromLists m)
         less_eps = foldr (\(_, r) acc -> (r < eps) && acc) True circles
         evs = V.toList $ getDiag $ fromLists m
+
+multHouseholderRight :: Floating a => [[a]] -> [[a]] -> [[a]]
+multHouseholderRight m' v' = toLists $ m `subtr` prod
+    where
+        m    = fromLists m'
+        v    = fromLists v'
+        vt   = transpose v
+        prod = scaleMatrix 2 ((m `multStd` v) `multStd` vt)
+
+getTridiagonal :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
+getTridiagonal m = appToPair fromLists $ second trans tridiag
+    where
+        appToPair f (x, y) = (f x, f y)
+        idm                = idMatrix $ length m
+        tridiag            = foldl handler (m, idm) [1..(length m - 1)]
+        handler (a, q) k 
+            | norm2 v' == 0 || u == e1 = (a, q)
+            | otherwise                = (new_a, new_q)
+            where
+                col = trans a !! (k - 1)
+                v'  = fromLists $ zipWith (\j x -> if j <= k then [0] else [x]) [1..length col] col
+                u   = scaleMatrix (1 / norm2 v') v'
+                e1  = mapPos (\(j, _) _-> if j == k + 1 then 1 else 0) v'
+                v   = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
+                new_a = multHouseholderRight (multHouseholder a v) v
+                new_q = multHouseholder q v
