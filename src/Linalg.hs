@@ -1,17 +1,18 @@
 module Linalg where
 
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes,
+             FlexibleContexts,
+             FlexibleInstances,
+             MultiParamTypeClasses,
+             UndecidableInstances,
+             AllowAmbiguousTypes,
+             DataKinds,
+             ScopedTypeVariables #-}
 
 import Data.Matrix
 import Data.Bifunctor
 import qualified Data.Vector as V
+import qualified Data.List.Zipper as ZP
 
 subtr :: Num a => Matrix a -> Matrix a -> Matrix a
 subtr = elementwise (-)
@@ -25,14 +26,14 @@ norm2 v = sqrt $ foldr (\x r -> x * x + r) 0 (toList v)
 getDiagonal :: Num a => Matrix a -> Matrix a
 getDiagonal m = diagonalList (nrows m) 0 $ V.toList $ getDiag m
 
-gershgorinCircles :: Floating a => Matrix a -> [(a, a)]
+gershgorinCircles :: Num a => Matrix a -> [(a, a)]
 gershgorinCircles m = zip cs rs
     where
         cs   = V.toList $ getDiag m
         diag = getDiagonal m
         rs   = map (foldr (\x r -> abs x + r) 0) (toLists $ m `subtr` diag)
 
-outUnitCircle :: (Floating a, Ord a) => Matrix a -> Bool
+outUnitCircle :: (Num a, Ord a) => Matrix a -> Bool
 outUnitCircle m = foldr (\(c, r) acc -> (abs c + r >= 1) || acc) False (gershgorinCircles m)
 
 simpleIteration :: (Floating a, Ord a) => [[a]] -> [[a]] -> a -> Either Int (Matrix a)
@@ -49,7 +50,7 @@ doIterations m b x eps outCircle cnt
         && cnt == 20                 = Left 0
     | outCircle
         && norm2 x' >= norm2 x + 1   = doIterations m b x' eps outCircle (cnt + 1) 
-    | norm2 (x `subtr` x') < eps    = Right x'
+    | norm2 (x `subtr` x') < eps     = Right x'
     | otherwise                      = doIterations m b x' eps outCircle 0
     where x'                         = (m `multStd` x) `add` b
  
@@ -92,20 +93,20 @@ doGaussZeidel l negu b x eps outCircle cnt
         && cnt == 20                            = Left 0
     | outCircle
         && norm2 x' >= norm2 x + 1              = doGaussZeidel l negu b x' eps outCircle (cnt + 1)
-    | norm2 ((l `multStd` x) `subtr` b') < eps = Right x
+    | norm2 ((l `multStd` x) `subtr` b') < eps  = Right x
     | otherwise                                 = doGaussZeidel l negu b x' eps outCircle 0
     where
         b' = (negu `multStd` x) `add` b
         x' = gaussPartial l b'
 
-givensRotation :: Floating a => [[a]] -> Int -> Int -> a -> a -> [[a]]
-givensRotation m i j c s = zipWith f [1..] m
+givensRotation :: Num a => [[a]] -> Int -> Int -> a -> a -> [[a]]
+givensRotation m i j c s = zipWith subst [1..] m
     where
-        ui = m !! (i - 1)
-        uj = m !! (j - 1)
+        ui    = m !! (i - 1)
+        uj    = m !! (j - 1)
         uinew = zipWith (\xi xj -> c * xi + s * xj) ui uj
         ujnew = zipWith (\xi xj -> (- s) * xi + c * xj) ui uj
-        f pos row
+        subst pos row
             | pos == i  = uinew
             | pos == j  = ujnew
             | otherwise = row
@@ -113,18 +114,19 @@ givensRotation m i j c s = zipWith f [1..] m
 trans :: [[a]] -> [[a]]
 trans = toLists . transpose . fromLists
 
-idMatrix :: Floating a => Int -> [[a]]
+idMatrix :: Num a => Int -> [[a]]
 idMatrix sz = toLists $ identity sz
 
-firstNonzero :: (Floating a, Ord a) => [a] -> Int -> Int
+firstNonzero :: (Num a, Ord a) => [a] -> Int -> Int
 firstNonzero v k = foldl (\acc (j, x) -> if j >= k && x /= 0 && acc == 0 
                                        then j 
                                        else acc) 0 (zip [1..] v) 
 
+appToPair f (x, y) = (f x, f y)
+
 qrDecompGivens :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
 qrDecompGivens m = appToPair fromLists $ first trans qr
     where
-        appToPair f (x, y) = (f x, f y)
         idm                = idMatrix $ length m 
         qr                 = foldl handler (idm, m) [1..(length m - 1)]
         handler (q, r) k 
@@ -135,14 +137,14 @@ qrDecompGivens m = appToPair fromLists $ first trans qr
                 i          = firstNonzero col k
                 (q'', r'') = fst $ foldl handler' ((q, r), col !! (i - 1)) (zip [1..] col)
                 handler' ((q', r'), xi) (j, xj)
-                    | j <= k    = ((q', r'), xi)
+                    | j <= i    = ((q', r'), xi)
                     | otherwise = ((givensRotation q' j i c s, givensRotation r' j i c s), (- s) * xj + c * xi)
                         where
                             n = sqrt $ xi * xi + xj * xj
                             c = xi / n
                             s = (- xj) / n
 
-multHouseholder :: Floating a => [[a]] -> [[a]] -> [[a]]
+multHouseholder :: Num a => [[a]] -> [[a]] -> [[a]]
 multHouseholder m' v' = toLists $ m `subtr` prod
     where
         m    = fromLists m'
@@ -153,7 +155,6 @@ multHouseholder m' v' = toLists $ m `subtr` prod
 qrDecompHouseholder :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
 qrDecompHouseholder m = appToPair fromLists $ first trans qr
     where
-        appToPair f (x, y) = (f x, f y)
         idm                = idMatrix $ length m
         qr                 = foldl handler (idm, m) [1..(length m - 1)]
         handler (q, r) k 
@@ -174,7 +175,7 @@ simpleIterationMaxEV' m v eps = doItersMaxEV m v eps 0
 
 doItersMaxEV m x eps cnt
     | cnt > 1000000000  = Left 0
-    | norm2 diff < eps = Right (ev, x)
+    | norm2 diff < eps  = Right (ev, x)
     | otherwise         = doItersMaxEV m x' eps (cnt + 1) 
     where
         x'   = scaleMatrix (1 / (norm2 $ m `multStd` x)) (m `multStd` x)
@@ -185,16 +186,16 @@ qrEV :: (Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
 qrEV m eps = doItersQrEV m eps (identity (length m))
 
 doItersQrEV m eps qk
-    | less_eps = (evs, qk)
+    | less_eps  = (evs, qk)
     | otherwise = doItersQrEV m' eps (qk `multStd` q)
     where
-        (q, r) = qrDecompGivens m
-        m' = toLists $ r `multStd` q
-        circles = gershgorinCircles (fromLists m)
-        less_eps = foldr (\(_, r) acc -> (r < eps) && acc) True circles
-        evs = V.toList $ getDiag $ fromLists m
+        (q, r)   = qrDecompGivens m
+        m'       = toLists $ r `multStd` q
+        circles  = gershgorinCircles (fromLists m)
+        less_eps = foldr (\(_, rd) acc -> (rd < eps) && acc) True circles
+        evs      = V.toList $ getDiag $ fromLists m
 
-multHouseholderRight :: Floating a => [[a]] -> [[a]] -> [[a]]
+multHouseholderRight :: Num a => [[a]] -> [[a]] -> [[a]]
 multHouseholderRight m' v' = toLists $ m `subtr` prod
     where
         m    = fromLists m'
@@ -205,17 +206,72 @@ multHouseholderRight m' v' = toLists $ m `subtr` prod
 getTridiagonal :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
 getTridiagonal m = appToPair fromLists $ second trans tridiag
     where
-        appToPair f (x, y) = (f x, f y)
         idm                = idMatrix $ length m
         tridiag            = foldl handler (m, idm) [1..(length m - 1)]
         handler (a, q) k 
             | norm2 v' == 0 || u == e1 = (a, q)
             | otherwise                = (new_a, new_q)
             where
-                col = trans a !! (k - 1)
-                v'  = fromLists $ zipWith (\j x -> if j <= k then [0] else [x]) [1..length col] col
-                u   = scaleMatrix (1 / norm2 v') v'
-                e1  = mapPos (\(j, _) _-> if j == k + 1 then 1 else 0) v'
-                v   = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
+                col   = trans a !! (k - 1)
+                v'    = fromLists $ zipWith (\j x -> if j <= k then [0] else [x]) [1..length col] col
+                u     = scaleMatrix (1 / norm2 v') v'
+                e1    = mapPos (\(j, _) _-> if j == k + 1 then 1 else 0) v'
+                v     = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
                 new_a = multHouseholderRight (multHouseholder a v) v
                 new_q = multHouseholder q v
+
+cursorp :: ZP.Zipper a -> Int
+cursorp (ZP.Zip l _) = length l
+
+rightn :: Int -> ZP.Zipper a -> ZP.Zipper a
+rightn 0 z = z
+rightn n z = rightn (n - 1) (ZP.right z) 
+
+givensRotationZ :: Num a => [ZP.Zipper a] -> Int -> Int -> a -> a -> [ZP.Zipper a]
+givensRotationZ m i j c s = zipWith subst [1..] m
+    where
+        ui       = m !! (i - 1)
+        uj       = m !! (j - 1)
+        cursp_ui = cursorp ui
+        cursp_uj = cursorp uj   
+        uinew    = rightn cursp_ui $ ZP.fromList $ 
+                   zipWith (\xi xj -> c * xi + s * xj) (ZP.toList ui) (ZP.toList uj)
+        ujnew    = rightn cursp_uj $ ZP.fromList $ 
+                   zipWith (\xi xj -> (- s) * xi + c * xj) (ZP.toList ui) (ZP.toList uj)
+        subst pos row
+            | pos == i  = uinew
+            | pos == j  = ujnew
+            | otherwise = row
+
+qrDecompTridiagonal :: (Floating a, Ord a) => [[a]] -> ([(Int, Int, a, a)], Matrix a)
+qrDecompTridiagonal m = second (fromLists . fmap ZP.toList) $ 
+                        foldl handler ([], zipped_m) [1..(length m - 1)]
+    where
+        zipped_m = fmap ZP.fromList m
+        handler (gs, r) k
+            | n == 0    = (gs, r)
+            | otherwise = ((k + 1, k, c, s) : gs, map ZP.right $ givensRotationZ r (k + 1) k c s)
+            where
+                col = map ZP.cursor r
+                xi  = col !! (k - 1)
+                xj  = col !! k
+                n   = sqrt $ xi * xi + xj * xj
+                c   = xi / n
+                s   = (- xj) / n
+
+multGivens :: Num a => [(Int, Int, a, a)] -> [[a]] -> [[a]]
+multGivens gs m = foldr (\(i, j, c, s) acc -> givensRotation acc i j c s) m gs
+
+qrEVTridiagonal :: (Show a, Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
+qrEVTridiagonal m eps = second (transpose . fromLists) $ doItersQrEVTridiagonal m eps (idMatrix $ length m) 
+
+doItersQrEVTridiagonal m eps qk
+    | less_eps  = (evs, qk)
+    | otherwise = doItersQrEVTridiagonal m' eps q
+    where
+        (gs, r)  = qrDecompTridiagonal m
+        m'       = trans $ multGivens gs (trans $ toLists r)
+        q        = multGivens gs qk
+        circles  = gershgorinCircles (fromLists m)
+        less_eps = foldr (\(_, rd) acc -> (rd < eps) && acc) True circles
+        evs      = V.toList $ getDiag $ fromLists m
