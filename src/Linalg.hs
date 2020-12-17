@@ -13,6 +13,7 @@ import Data.Matrix
 import Data.Bifunctor
 import qualified Data.Vector as V
 import qualified Data.List.Zipper as ZP
+import Data.Complex
 
 subtr :: Num a => Matrix a -> Matrix a -> Matrix a
 subtr = elementwise (-)
@@ -22,6 +23,9 @@ add = elementwise (+)
 
 norm2 :: Floating a => Matrix a -> a
 norm2 v = sqrt $ foldr (\x r -> x * x + r) 0 (toList v) 
+
+norm2C :: RealFloat a => Matrix (Complex a) -> a
+norm2C v = sqrt $ foldr (\x r -> realPart (x * conjugate x) + r) 0 (toList v) 
 
 getDiagonal :: Num a => Matrix a -> Matrix a
 getDiagonal m = diagonalList (nrows m) 0 $ V.toList $ getDiag m
@@ -167,33 +171,34 @@ qrDecompHouseholder m = appToPair fromLists $ first trans qr
                 e1  = mapPos (\(j, _) _-> if j == k then 1 else 0) v'
                 v   = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
  
-simpleIterationMaxEV :: (Floating a, Ord a) => [[a]] -> [[a]] -> a -> Either Int (a, Matrix a)
+simpleIterationMaxEV :: RealFloat a => [[Complex a]] -> [[Complex a]] -> a -> Int
+                        -> Either Int (Complex a, Matrix (Complex a))
 simpleIterationMaxEV m v = simpleIterationMaxEV' (fromLists m) (fromLists v)
 
-simpleIterationMaxEV' :: (Floating a, Ord a) => Matrix a -> Matrix a -> a -> Either Int (a, Matrix a)
-simpleIterationMaxEV' m v eps = doItersMaxEV m v eps 0
+simpleIterationMaxEV' m v eps maxItersCnt = doItersMaxEV m v eps maxItersCnt
 
 doItersMaxEV m x eps cnt
-    | cnt > 1000000000  = Left 0
-    | norm2 diff < eps  = Right (ev, x)
-    | otherwise         = doItersMaxEV m x' eps (cnt + 1) 
+    | cnt == 0          = Left 0
+    | norm2C diff < eps = Right (ev, x)
+    | otherwise         = doItersMaxEV m x' eps (cnt - 1) 
     where
-        x'   = scaleMatrix (1 / (norm2 $ m `multStd` x)) (m `multStd` x)
+        norm = (norm2C $ m `multStd` x) :+ 0
+        x'   = scaleMatrix (1 / norm) (m `multStd` x)
         ev   = head $ head $ toLists $ transpose x `multStd` (m `multStd` x)
         diff = (m `multStd` x) `subtr` scaleMatrix ev x
 
 qrEV :: (Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
-qrEV m eps = doItersQrEV m eps (identity (length m))
+qrEV m eps = doItersQrEV m eps (identity $ length m)
 
 doItersQrEV m eps qk
-    | less_eps  = (evs, qk)
+    | lessEps   = (evs, qk)
     | otherwise = doItersQrEV m' eps (qk `multStd` q)
     where
-        (q, r)   = qrDecompGivens m
-        m'       = toLists $ r `multStd` q
-        circles  = gershgorinCircles (fromLists m)
-        less_eps = foldr (\(_, rd) acc -> (rd < eps) && acc) True circles
-        evs      = V.toList $ getDiag $ fromLists m
+        (q, r)  = qrDecompGivens m
+        m'      = toLists $ r `multStd` q
+        circles = gershgorinCircles (fromLists m)
+        lessEps = foldr (\(_, rd) acc -> (rd < eps) && acc) True circles
+        evs     = V.toList $ getDiag $ fromLists m
 
 multHouseholderRight :: Num a => [[a]] -> [[a]] -> [[a]]
 multHouseholderRight m' v' = toLists $ m `subtr` prod
@@ -210,15 +215,15 @@ getTridiagonal m = appToPair fromLists $ second trans tridiag
         tridiag            = foldl handler (m, idm) [1..(length m - 1)]
         handler (a, q) k 
             | norm2 v' == 0 || u == e1 = (a, q)
-            | otherwise                = (new_a, new_q)
+            | otherwise                = (newa, newq)
             where
-                col   = trans a !! (k - 1)
-                v'    = fromLists $ zipWith (\j x -> if j <= k then [0] else [x]) [1..length col] col
-                u     = scaleMatrix (1 / norm2 v') v'
-                e1    = mapPos (\(j, _) _-> if j == k + 1 then 1 else 0) v'
-                v     = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
-                new_a = multHouseholderRight (multHouseholder a v) v
-                new_q = multHouseholder q v
+                col  = trans a !! (k - 1)
+                v'   = fromLists $ zipWith (\j x -> if j <= k then [0] else [x]) [1..length col] col
+                u    = scaleMatrix (1 / norm2 v') v'
+                e1   = mapPos (\(j, _) _-> if j == k + 1 then 1 else 0) v'
+                v    = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
+                newa = multHouseholderRight (multHouseholder a v) v
+                newq = multHouseholder q v
 
 cursorp :: ZP.Zipper a -> Int
 cursorp (ZP.Zip l _) = length l
@@ -230,13 +235,13 @@ rightn n z = rightn (n - 1) (ZP.right z)
 givensRotationZ :: Num a => [ZP.Zipper a] -> Int -> Int -> a -> a -> [ZP.Zipper a]
 givensRotationZ m i j c s = zipWith subst [1..] m
     where
-        ui       = m !! (i - 1)
-        uj       = m !! (j - 1)
-        cursp_ui = cursorp ui
-        cursp_uj = cursorp uj   
-        uinew    = rightn cursp_ui $ ZP.fromList $ 
+        ui      = m !! (i - 1)
+        uj      = m !! (j - 1)
+        curspUi = cursorp ui
+        curspUj = cursorp uj   
+        uinew   = rightn curspUi $ ZP.fromList $ 
                    zipWith (\xi xj -> c * xi + s * xj) (ZP.toList ui) (ZP.toList uj)
-        ujnew    = rightn cursp_uj $ ZP.fromList $ 
+        ujnew   = rightn curspUj $ ZP.fromList $ 
                    zipWith (\xi xj -> (- s) * xi + c * xj) (ZP.toList ui) (ZP.toList uj)
         subst pos row
             | pos == i  = uinew
@@ -262,16 +267,62 @@ qrDecompTridiagonal m = second (fromLists . fmap ZP.toList) $
 multGivens :: Num a => [(Int, Int, a, a)] -> [[a]] -> [[a]]
 multGivens gs m = foldr (\(i, j, c, s) acc -> givensRotation acc i j c s) m gs
 
-qrEVTridiagonal :: (Show a, Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
-qrEVTridiagonal m eps = second (transpose . fromLists) $ doItersQrEVTridiagonal m eps (idMatrix $ length m) 
+qrEVTridiagonal :: (Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
+qrEVTridiagonal m eps = second (transpose . fromLists) $ doItersQrEVsTridiagonal m eps (idMatrix $ length m)
 
-doItersQrEVTridiagonal m eps qk
-    | less_eps  = (evs, qk)
-    | otherwise = doItersQrEVTridiagonal m' eps q
+doItersQrEVsTridiagonal m eps qk
+    | lessEps   = (evs, qk)
+    | otherwise = doItersQrEVsTridiagonal m' eps q
     where
-        (gs, r)  = qrDecompTridiagonal m
-        m'       = trans $ multGivens gs (trans $ toLists r)
-        q        = multGivens gs qk
-        circles  = gershgorinCircles (fromLists m)
-        less_eps = foldr (\(_, rd) acc -> (rd < eps) && acc) True circles
-        evs      = V.toList $ getDiag $ fromLists m
+        (gs, r) = qrDecompTridiagonal m
+        m'      = trans $ multGivens gs (trans $ toLists r)
+        q       = multGivens gs qk
+        circles = gershgorinCircles (fromLists m)
+        lessEps = foldr (\(_, rd) acc -> (rd < eps) && acc) True circles
+        evs     = V.toList $ getDiag $ fromLists m
+
+doItersQrEVsTridiagonalNTimes m cnt qk
+    | cnt == 0  = (evs, qk)
+    | otherwise = doItersQrEVsTridiagonal' m' (cnt - 1) q
+    where
+        (gs, r) = qrDecompTridiagonal m
+        m'      = trans $ multGivens gs (trans $ toLists r)
+        q       = multGivens gs qk
+        evs     = V.toList $ getDiag $ fromLists m
+
+doItersQrMinEVTridiagonal m eps qk
+    | radius < eps = (qk, m)
+    | otherwise    = doItersQrEVTridiagonal' m' eps q
+    where
+        (gs, r) = qrDecompTridiagonal m
+        m'      = trans $ multGivens gs (trans $ toLists r)
+        q       = multGivens gs qk
+        lastRow = (head $ reverse $ toLists r) 
+        radius  = foldr (+) 0 lastRow - last lastRow
+ 
+swapMinor :: Num a => Int -> Matrix a -> Matrix a -> Matrix a
+swapMinor k minor m = m' `add` minor' 
+    where
+        sz     = nrows m
+        m'     = mapPos (\(i, j) x -> if i <= sz - k && j <= sz - k
+                                  then 0
+                                  else x) m
+        minor' = extendTo k k minor
+
+qrEVShifts :: (FLoating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
+qrEVShifts mt eps = (evs, transpose q)
+    where
+        sz = length mt
+        (q, d) = foldl handler (identity $ length mt, fromLists mt) [1..sz]
+        evs    = V.toList $ getDiag $ fromLists d
+        handler k (qk, m) 
+            | k == sz   = (qk, m)
+            | otherwise = (qt `multStd` qk, swapMinor k r' m)
+            where
+                m'      = submatrix 1 (sz - k) 1 (sz - k) m
+                lowerSq = submatrix (sz - 1) sz (sz - 1) sz m'
+                s       = head $ tail $ fst $ 
+                          doItersQrEVsTridiagonalNTimes (toLists lowerSq) 20 (idMatrix 2)
+                m''     = m' `subtr` scaleMatrix s (identity $ nrows m')
+                (qt, r) = first fromLists $ doItersQrMinEVTridiagonal (toLists m'') eps (idMatrix sz)
+                r'      = r `add` scaleMatrix s (identity $ nrows m')

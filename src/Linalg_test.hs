@@ -1,3 +1,5 @@
+module Linalg_test where
+
 import Test.HUnit
 import Data.Matrix
 import Linalg
