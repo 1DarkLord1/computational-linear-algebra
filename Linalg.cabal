@@ -19,7 +19,7 @@ synopsis:            Computational linear algebra algorithms
 -- description:
 
 -- URL for the project homepage or repository.
-homepage:            https://github.com/1DarkLord1
+homepage:            https://github.com/1DarkLord1/computational-linear-algebra
 
 -- The license under which the package is released.
 license:             MIT
@@ -60,7 +60,7 @@ library
   -- other-extensions:
 
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.12 && <4.13, matrix, vector
+  build-depends:       base >=4.12 && <4.13, matrix, vector, HUnit, ListZipper
 
   -- Directories containing source files.
   hs-source-dirs:      src
