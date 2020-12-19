@@ -7,13 +7,21 @@ module Linalg where
              UndecidableInstances,
              AllowAmbiguousTypes,
              DataKinds,
-             ScopedTypeVariables #-}
+             ScopedTypeVariables,
+#-}
+
 
 import Data.Matrix
 import Data.Bifunctor
 import qualified Data.Vector as V
 import qualified Data.List.Zipper as ZP
 import Data.Complex
+import qualified Data.List as DL
+import qualified Data.Set as DS
+import qualified Data.Map as DM
+import GHC.Float
+import Data.Maybe
+import Data.Euclidean
 
 subtr :: Num a => Matrix a -> Matrix a -> Matrix a
 subtr = elementwise (-)
@@ -173,16 +181,14 @@ qrDecompHouseholder m = appToPair fromLists $ first trans qr
  
 simpleIterationMaxEV :: RealFloat a => [[Complex a]] -> [[Complex a]] -> a -> Int
                         -> Either Int (Complex a, Matrix (Complex a))
-simpleIterationMaxEV m v = simpleIterationMaxEV' (fromLists m) (fromLists v)
-
-simpleIterationMaxEV' m v eps maxItersCnt = doItersMaxEV m v eps maxItersCnt
+simpleIterationMaxEV m v = doItersMaxEV (fromLists m) (fromLists v)
 
 doItersMaxEV m x eps cnt
     | cnt == 0          = Left 0
     | norm2C diff < eps = Right (ev, x)
     | otherwise         = doItersMaxEV m x' eps (cnt - 1) 
     where
-        norm = (norm2C $ m `multStd` x) :+ 0
+        norm = norm2C (m `multStd` x) :+ 0
         x'   = scaleMatrix (1 / norm) (m `multStd` x)
         ev   = head $ head $ toLists $ transpose x `multStd` (m `multStd` x)
         diff = (m `multStd` x) `subtr` scaleMatrix ev x
@@ -310,7 +316,7 @@ swapMinor minor m = m' `add` minor'
                                   else x) m
         minor' = extendTo 0 mSz mSz minor
 
-qrEVShifts :: (Show a, Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
+qrEVShifts :: (Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
 qrEVShifts mt eps = (evs, transpose q)
     where
         sz     = length mt
@@ -319,11 +325,108 @@ qrEVShifts mt eps = (evs, transpose q)
         handler (qk, m) k 
                = (qt `multStd` qk, swapMinor r' m)
                where
-                    m'      = submatrix 1 (sz - k) 1 (sz - k) m
-                    sz'     = nrows m'
-                    lowerSq = submatrix (sz' - 1) sz' (sz' - 1) sz' m'
-                    s       = head $ tail $ fst $ 
-                              doItersQrEVsTridiagonalNTimes (toLists lowerSq) 20 (idMatrix 2)
-                    m''     = m' `subtr` scaleMatrix s (identity sz')
-                    (qt, r) = first fromLists $ doItersQrMinEVTridiagonal (toLists m'') eps (idMatrix sz)
-                    r'      = fromLists r `add` scaleMatrix s (identity sz')
+                    m'       = submatrix 1 (sz - k) 1 (sz - k) m
+                    sz'      = nrows m'
+                    lowerSq  = submatrix (sz' - 1) sz' (sz' - 1) sz' m'
+                    maxIters = 20
+                    s        = head $ tail $ fst $ 
+                               doItersQrEVsTridiagonalNTimes (toLists lowerSq) maxIters (idMatrix 2)
+                    m''      = m' `subtr` scaleMatrix s (identity sz')
+                    (qt, r)  = first fromLists $ doItersQrMinEVTridiagonal (toLists m'') eps (idMatrix sz)
+                    r'       = fromLists r `add` scaleMatrix s (identity sz')
+
+isomorphic :: (Floating a, Ord a) => [[a]] -> [[a]] -> Bool
+isomorphic g1 g2 = norm2 (g1Spec `subtr` g2Spec) <= 10 * eps
+    where
+        eps = 0.00001
+        g1' = toLists $ fst $ getTridiagonal g1
+        g2' = toLists $ fst $ getTridiagonal g2
+        g1Spec = fromLists $ map (: []) $ DL.sort $ fst $ qrEVShifts g1' eps
+        g2Spec = fromLists $ map (: []) $ DL.sort $ fst $ qrEVShifts g2' eps
+
+getAdjMap :: Num a => Int -> DM.Map Int (DM.Map Int a)
+getAdjMap n = adjMap 
+    where
+        buildRow = DM.fromList $ map (\k -> (k, 0)) [0..n - 1]
+        adjMap = DM.fromList $ map (\k -> (k, buildRow)) [0..n - 1]
+
+addEdge (x, y) = DM.update (Just . DM.update (Just . (+ 1)) y) x
+
+buildAdjMatrix :: Num a => Int -> (Int -> DM.Map Int (DM.Map Int a) -> DM.Map Int (DM.Map Int a)) -> Matrix a
+buildAdjMatrix n genEdges = m
+    where
+        adjMap      = getAdjMap n
+        adjMap'     = foldr genEdges adjMap [0..n - 1]
+        m           = matrix n n fill
+        fill (i, j) = x
+            where
+                i' = i - 1
+                j' = j - 1
+                x  = fromJust $ DM.lookup (j - 1) $ fromJust $ DM.lookup (i - 1) adjMap'
+
+buildGraph1 :: Int -> Matrix Double
+buildGraph1 n = buildAdjMatrix (n * n) genEdges
+    where
+        genEdges x = foldr (\y acc -> genEdges' (x, y) . acc) id [0..n - 1]
+        genEdges' (x, y)
+            | x >= n    = id
+            | otherwise = addEdge (v, u1) . addEdge (v, u2) . 
+                          addEdge (v, u3) . addEdge (v, u4) .
+                          addEdge (v, u5) . addEdge (v, u6) . 
+                          addEdge (v, u7) . addEdge (v, u8)
+            where
+                x1 = (x + 2 * y) `mod` n
+                x2 = (x - 2 * y + 3 * n) `mod` n
+                x3 = (x + 2 * y + 1) `mod` n
+                x4 = (x - 2 * y - 1 + 3 * n) `mod` n
+                y1 = (y + 2 * x) `mod` n
+                y2 = (y - 2 * x + 3 * n) `mod` n
+                y3 = (y + 2 * x + 1) `mod` n
+                y4 = (y - 2 * x - 1 + 3 * n) `mod` n
+                u1 = x1 * n + y
+                u2 = x2 * n + y
+                u3 = x3 * n + y
+                u4 = x4 * n + y
+                u5 = x * n + y1
+                u6 = x * n + y2
+                u7 = x * n + y3
+                u8 = x * n + y4
+                v  = x * n + y
+                
+inv :: Int -> Int -> Int
+inv x md = ((xinv `mod` md) + md) `mod` md
+    where 
+        xinv = snd $ gcdExt x md  
+
+buildGraph2 :: Int -> Matrix Double
+buildGraph2 p = buildAdjMatrix (p + 1) genEdges
+    where
+        genEdges x  
+            | x == p    = addEdge (x, xInv) . addEdge (x, x) . addEdge (x, x)
+            | otherwise = addEdge (x, xInv) . addEdge (x, x1) . addEdge (x, x2)
+            where
+                xInv
+                    | x == 0    = p
+                    | x == p    = 0
+                    | otherwise = inv x p
+                x1 = (x + 1) `mod` p
+                x2 = (x - 1 + p) `mod` p
+
+expanderAlpha :: Int -> Matrix Double -> Double -> Double
+expanderAlpha n g d = max (abs ev1) (abs ev2) / d 
+    where
+        eps = 0.00001
+        evs = fst $ qrEVShifts (toLists $ fst $ getTridiagonal $ toLists g) eps
+        sortedEVs = reverse $ DL.sort evs
+        ev1 = head $ tail sortedEVs
+        ev2 = last sortedEVs
+
+expanderAlpha1 :: Int -> Double 
+expanderAlpha1 n = expanderAlpha n g 8
+    where
+        g = buildGraph1 n
+
+expanderAlpha2 :: Int -> Double
+expanderAlpha2 n = expanderAlpha (n + 1) g 3
+    where
+        g = buildGraph2 n
