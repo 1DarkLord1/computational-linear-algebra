@@ -3,10 +3,10 @@
 
 #### Haskell and Cabal installation commands:
 ``` 
-    curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
-    ghcup install ghc
-    ghcup install cabal
-    cabal install cabal-install
+   curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+   ghcup install ghc
+   ghcup install cabal
+   cabal install cabal-install
 ```
 
 #### To use the module come in the root folder at first. Then enter: 
