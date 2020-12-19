@@ -264,7 +264,7 @@ givensRotationZ m i j c s = zipWith subst [1..] m
             | pos == j  = ujnew
             | otherwise = row
 
-{- QR decomposition for the tridiagonal matrices. Complexity O(n^3). -}
+{- QR decomposition for the tridiagonal matrices. Complexity O(n^2). -}
 qrDecompTridiagonal :: (Floating a, Ord a) => [[a]] -> ([(Int, Int, a, a)], Matrix a)
 qrDecompTridiagonal m = second (fromLists . fmap ZP.toList) $ 
                         foldl handler ([], zipped_m) [1..(length m - 1)]
