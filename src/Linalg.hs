@@ -48,6 +48,8 @@ gershgorinCircles m = zip cs rs
 outUnitCircle :: (Num a, Ord a) => Matrix a -> Bool
 outUnitCircle m = foldr (\(c, r) acc -> (abs c + r >= 1) || acc) False (gershgorinCircles m)
 
+
+{- Simple iteration method of solving linear equations systems. Complexity O(n^2) per iteration. -}
 simpleIteration :: (Floating a, Ord a) => [[a]] -> [[a]] -> a -> Either Int (Matrix a)
 simpleIteration m b = simpleIteration' (fromLists m) (fromLists b)
   
@@ -90,6 +92,7 @@ gaussPartial m b = fromLists $ map (: []) (foldl gaussStep [] mlist)
                 sm   = sum $ zipWith (*) ans row'
                 xi   = (bi - sm) / coef  
 
+{- Gauss-Zeidel method of solving linear equations systems. Complexity O(n^2) per iteration. -}
 gaussZeidel :: (Floating a, Ord a) => [[a]] -> [[a]] -> a -> Either Int (Matrix a)
 gaussZeidel m b = gaussZeidel' (fromLists m) (fromLists b)
 
@@ -111,6 +114,7 @@ doGaussZeidel l negu b x eps outCircle cnt
         b' = (negu `multStd` x) `add` b
         x' = gaussPartial l b'
 
+{- Givens rotation of matrix. Complexity O(n). -}
 givensRotation :: Num a => [[a]] -> Int -> Int -> a -> a -> [[a]]
 givensRotation m i j c s = zipWith subst [1..] m
     where
@@ -136,6 +140,7 @@ firstNonzero v k = foldl (\acc (j, x) -> if j >= k && x /= 0 && acc == 0
 
 appToPair f (x, y) = (f x, f y)
 
+{- Givens rotation method of QR decomposition. Complexity O(n^3). -}
 qrDecompGivens :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
 qrDecompGivens m = appToPair fromLists $ first trans qr
     where
@@ -156,6 +161,7 @@ qrDecompGivens m = appToPair fromLists $ first trans qr
                             c = xi / n
                             s = (- xj) / n
 
+{- Householder matrix multiplication. Complexity O(n^2). -}
 multHouseholder :: Num a => [[a]] -> [[a]] -> [[a]]
 multHouseholder m' v' = toLists $ m `subtr` prod
     where
@@ -164,6 +170,7 @@ multHouseholder m' v' = toLists $ m `subtr` prod
         vt   = transpose v
         prod = scaleMatrix 2 v `multStd` (vt `multStd` m)
 
+{- Householder reflection method of QR decomposition. Complexity O(n^3). -}
 qrDecompHouseholder :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
 qrDecompHouseholder m = appToPair fromLists $ first trans qr
     where
@@ -179,6 +186,7 @@ qrDecompHouseholder m = appToPair fromLists $ first trans qr
                 e1  = mapPos (\(j, _) _-> if j == k then 1 else 0) v'
                 v   = toLists $ scaleMatrix (1 / norm2 (u `subtr` e1)) (u `subtr` e1)
  
+{- Simple iteration method of calculation the maximum modulo eigenvalue. Complexity O(n^2) per iteration. -}
 simpleIterationMaxEV :: RealFloat a => [[Complex a]] -> [[Complex a]] -> a -> Int
                         -> Either Int (Complex a, Matrix (Complex a))
 simpleIterationMaxEV m v = doItersMaxEV (fromLists m) (fromLists v)
@@ -193,6 +201,7 @@ doItersMaxEV m x eps cnt
         ev   = head $ head $ toLists $ transpose x `multStd` (m `multStd` x)
         diff = (m `multStd` x) `subtr` scaleMatrix ev x
 
+{- QR-algorithm of calculation the matrix spectrum. Complexity O(n^3) per iteration. -}
 qrEV :: (Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
 qrEV m eps = doItersQrEV m eps (identity $ length m)
 
@@ -214,6 +223,7 @@ multHouseholderRight m' v' = toLists $ m `subtr` prod
         vt   = transpose v
         prod = scaleMatrix 2 ((m `multStd` v) `multStd` vt)
 
+{- Matrix transformation to tridiagonal form. Complexity O(n^3). -}
 getTridiagonal :: (Floating a, Ord a) => [[a]] -> (Matrix a, Matrix a)
 getTridiagonal m = appToPair fromLists $ second trans tridiag
     where
@@ -254,6 +264,7 @@ givensRotationZ m i j c s = zipWith subst [1..] m
             | pos == j  = ujnew
             | otherwise = row
 
+{- QR decomposition for the tridiagonal matrices. Complexity O(n^3). -}
 qrDecompTridiagonal :: (Floating a, Ord a) => [[a]] -> ([(Int, Int, a, a)], Matrix a)
 qrDecompTridiagonal m = second (fromLists . fmap ZP.toList) $ 
                         foldl handler ([], zipped_m) [1..(length m - 1)]
@@ -273,6 +284,10 @@ qrDecompTridiagonal m = second (fromLists . fmap ZP.toList) $
 multGivens :: Num a => [(Int, Int, a, a)] -> [[a]] -> [[a]]
 multGivens gs m = foldr (\(i, j, c, s) acc -> givensRotation acc i j c s) m gs
 
+{- 
+QR-algorithm of calculation the matrix spectrum for the tridiagonal matrices. 
+Complexity O(n^2) per iteration. 
+-}
 qrEVTridiagonal :: (Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
 qrEVTridiagonal m eps = second (transpose . fromLists) $ doItersQrEVsTridiagonal m eps (idMatrix $ length m)
 
@@ -316,6 +331,10 @@ swapMinor minor m = m' `add` minor'
                                   else x) m
         minor' = extendTo 0 mSz mSz minor
 
+{- 
+Wilkinson shifts QR-algorithm of calculation the matrix spectrum for the tridiagonal matrices. 
+Complexity O(n^2) per iteration.
+-}
 qrEVShifts :: (Floating a, Ord a) => [[a]] -> a -> ([a], Matrix a)
 qrEVShifts mt eps = (evs, transpose q)
     where
@@ -335,12 +354,15 @@ qrEVShifts mt eps = (evs, transpose q)
                     (qt, r)  = first fromLists $ doItersQrMinEVTridiagonal (toLists m'') eps (idMatrix sz)
                     r'       = fromLists r `add` scaleMatrix s (identity sz')
 
+{- Test graphs on nonisomorphism. Complexity O(Time(qrEVShifts)). -}
 isomorphic :: (Floating a, Ord a) => [[a]] -> [[a]] -> Bool
-isomorphic g1 g2 = norm2 (g1Spec `subtr` g2Spec) <= 10 * eps
+isomorphic g1 g2
+    | length g1 /= length g2 = False
+    | otherwise              = norm2 (g1Spec `subtr` g2Spec) <= 10 * eps
     where
-        eps = 0.00001
-        g1' = toLists $ fst $ getTridiagonal g1
-        g2' = toLists $ fst $ getTridiagonal g2
+        eps    = 0.00001
+        g1'    = toLists $ fst $ getTridiagonal g1
+        g2'    = toLists $ fst $ getTridiagonal g2
         g1Spec = fromLists $ map (: []) $ DL.sort $ fst $ qrEVShifts g1' eps
         g2Spec = fromLists $ map (: []) $ DL.sort $ fst $ qrEVShifts g2' eps
 
@@ -348,7 +370,7 @@ getAdjMap :: Num a => Int -> DM.Map Int (DM.Map Int a)
 getAdjMap n = adjMap 
     where
         buildRow = DM.fromList $ map (\k -> (k, 0)) [0..n - 1]
-        adjMap = DM.fromList $ map (\k -> (k, buildRow)) [0..n - 1]
+        adjMap   = DM.fromList $ map (\k -> (k, buildRow)) [0..n - 1]
 
 addEdge (x, y) = DM.update (Just . DM.update (Just . (+ 1)) y) x
 
@@ -412,14 +434,15 @@ buildGraph2 p = buildAdjMatrix (p + 1) genEdges
                 x1 = (x + 1) `mod` p
                 x2 = (x - 1 + p) `mod` p
 
+{- Calculation the optimal alpha for expander. Complexity O(Time(qrEVShifts)). -}
 expanderAlpha :: Int -> Matrix Double -> Double -> Double
 expanderAlpha n g d = max (abs ev1) (abs ev2) / d 
     where
-        eps = 0.00001
-        evs = fst $ qrEVShifts (toLists $ fst $ getTridiagonal $ toLists g) eps
+        eps       = 0.00001
+        evs       = fst $ qrEVShifts (toLists $ fst $ getTridiagonal $ toLists g) eps
         sortedEVs = reverse $ DL.sort evs
-        ev1 = head $ tail sortedEVs
-        ev2 = last sortedEVs
+        ev1       = head $ tail sortedEVs
+        ev2       = last sortedEVs
 
 expanderAlpha1 :: Int -> Double 
 expanderAlpha1 n = expanderAlpha n g 8
