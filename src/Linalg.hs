@@ -452,4 +452,4 @@ expanderAlpha1 n = expanderAlpha n g 8
 expanderAlpha2 :: Int -> Double
 expanderAlpha2 n = expanderAlpha (n + 1) g 3
     where
-        g = buildGraph2 n
+        g = buildGraph2 n 
